@@ -45,82 +45,75 @@ export const newProduct = TryCatch(async (req, res, next) => {
             success: true,
             message: `Product Added Successfully`,
         });
-    } catch (error) {
+    } catch (error: unknown) {
         console.error("Error in product creation:", error);
-        return next(new ErrorHandler(`Error creating product: ${error.message}`, 500));
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        return next(new ErrorHandler(`Error creating product: ${errorMessage}`, 500));
     }
 });
 
-export const addUserReview = TryCatch(
-    async (req, res, next) => {
+export const addUserReview = TryCatch(async (req, res, next) => {
+    const { rating, comment, id, user } = req.body;
 
-        const { rating, comment, id, user } = req.body;
+    if (!rating || !comment || !id || !user) {
+        return next(new ErrorHandler("Please provide all required fields", 400));
+    }
 
-        console.log(req.body);
+    console.log("Adding review:", { rating, comment, productId: id, userId: user });
 
-        const review = {
-            user,
-            name: user?._name,
-            rating: Number(rating),
-            comment,
+    const review = {
+        user,
+        rating: Number(rating),
+        comment,
+    };
 
-        };
+    const product = await Product.findById(id).populate("reviews.user");
 
-        const product = await Product.findById(id).populate("reviews.user");
+    if (!product) {
+        return next(new ErrorHandler("Product does not exist", 404));
+    }
 
-        // console.log(`product hoon main`, product);
-
-
-        if (!product) return next(new ErrorHandler(`Product Does Not Exists`, 400));
-
-
-        // Adding Review Functionality
-        const isReviewed = product.reviews.find((rev) => {
-            // Check if rev.user is an object with an _id property
-            if (rev.user && typeof rev.user === 'object' && '_id' in rev.user) {
-                const userObj = rev.user as { _id: string }; // Assert the type safely
-                return userObj._id === user; // Perform comparison
-            }
-            return false; // In case rev.user is not an object, return false
-        });
-
-
-
-
-
-
-        if (isReviewed) {
-            product.reviews.forEach((rev) => {
-                // Check if rev.user is an object with an _id property
-                if (rev.user && typeof rev.user === 'object' && '_id' in rev.user) {
-                    const userObj = rev.user as { _id: string }; // Now safe to assert the type
-
-                    if (userObj._id.toString().trim() === user.toString().trim()) {
-                        rev.rating = rating;
-                        rev.comment = comment;
-                    }
-                }
-            });
-        } else {
-            product.reviews.push(review);
-            product.numOfReviews = product.reviews.length;
+    // Check if user has already reviewed this product
+    const isReviewed = product.reviews.find((rev) => {
+        if (rev.user && typeof rev.user === 'object' && '_id' in rev.user) {
+            const userObj = rev.user as { _id: string };
+            return userObj._id.toString() === user.toString();
         }
+        return false;
+    });
 
-        let avg = 0;
-
+    // Update existing review or add new one
+    if (isReviewed) {
         product.reviews.forEach((rev) => {
-            avg += rev.rating;
+            if (rev.user && typeof rev.user === 'object' && '_id' in rev.user) {
+                const userObj = rev.user as { _id: string };
+                if (userObj._id.toString() === user.toString()) {
+                    rev.rating = Number(rating);
+                    rev.comment = comment;
+                }
+            }
         });
+    } else {
+        product.reviews.push(review);
+        product.numOfReviews = product.reviews.length;
+    }
 
-        product.ratings = avg / product.reviews.length;
+    // Calculate average rating
+    let avg = 0;
+    product.reviews.forEach((rev) => {
+        avg += rev.rating;
+    });
+    product.ratings = avg / product.reviews.length;
 
-        await product.save({ validateBeforeSave: false });
-        return res.status(200).json({
-            success: true,
-            message: "Review Added Successfully",
-        });
-    })
+    // Save product and invalidate cache
+    await product.save({ validateBeforeSave: false });
+    invalidatesCache({ product: true, productId: String(product._id) });
 
+    return res.status(200).json({
+        success: true,
+        message: "Review added successfully"
+    });
+});
 
 // Revalidate on New, Update, Delete & on New Order
 export const getLatestProducts = async (
@@ -148,10 +141,10 @@ export const getLatestProducts = async (
             message: `All Products`,
             products
         });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.log(error);
-
-        return next(error)
+        const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
+        return next(processedError);
     }
 }
 
@@ -178,8 +171,9 @@ export const getAdminProducts = async (
             message: `All Products`,
             products
         });
-    } catch (error: any) {
-        return next(error)
+    } catch (error: unknown) {
+        const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
+        return next(processedError);
     }
 }
 
@@ -190,13 +184,30 @@ export const getProductDetail = async (
     next: NextFunction
 ) => {
     try {
-
+        const id = req.params.id;
         let product;
-        let id = req.params.id
+        
         if (myCache.has(`product-${id}`)) {
-            // get product from cache
-            product = JSON.parse(myCache.get(`product-${id}`)!)
+            // Get product from cache
+            product = JSON.parse(myCache.get(`product-${id}`)!);
+            
+            // Check if it's the right product and has populated reviews
             if (product._id == id) {
+                // If the product has reviews but they might not be populated properly,
+                // we'll check and re-populate if needed
+                if (product.reviews && product.reviews.length > 0 && 
+                    (!product.reviews[0].user || typeof product.reviews[0].user === 'string')) {
+                    console.log("Re-populating reviews for cached product");
+                    // Reviews need to be re-populated
+                    product = await Product.findById(id).populate({
+                        path: "reviews.user",
+                        select: "name email image"
+                    });
+                    
+                    // Update cache with populated reviews
+                    myCache.set(`product-${id}`, JSON.stringify(product));
+                }
+                
                 return res.status(200).json({
                     success: true,
                     message: `Product Detail`,
@@ -204,25 +215,32 @@ export const getProductDetail = async (
                 });
             }
         }
-        else {
-            // get product from server
+        
+        // Get product from database with fully populated reviews
+        product = await Product.findById(id).populate({
+            path: "reviews.user",
+            select: "name email image"
+        });
 
-            product = await Product.findById(id).populate("reviews.user")
-
-            if (!product) {
-                return res.status(404).json({ message: "Product not found", success: false })
-            }
-
-            myCache.set(`product-${id}`, JSON.stringify(product));
+        if (!product) {
+            return res.status(404).json({ 
+                success: false,
+                message: "Product not found" 
+            });
         }
+
+        // Update cache
+        myCache.set(`product-${id}`, JSON.stringify(product));
 
         return res.status(200).json({
             success: true,
-            message: `User Detail ${product}`,
+            message: `Product Detail`,
             product
         });
-    } catch (error: any) {
-        return next(error)
+    } catch (error: unknown) {
+        console.error("Error fetching product details:", error);
+        const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
+        return next(processedError);
     }
 }
 
@@ -266,14 +284,16 @@ export const updateProduct = TryCatch(async (req, res, next) => {
             const cloudinaryResult = await uploadOnCloudinary(req.file.path);
             console.log("Cloudinary result:", cloudinaryResult);
             
-            // Update product images array
-            product.images = [{
+            // Clear existing images and add the new one
+            product.images = [];
+            product.images.push({
                 public_id: cloudinaryResult.public_id,
                 url: cloudinaryResult.url
-            }];
-        } catch (error) {
+            });
+        } catch (error: unknown) {
             console.error("Error handling image update:", error);
-            return next(new ErrorHandler(`Error updating product image: ${error.message}`, 500));
+            const errorMessage = error instanceof Error ? error.message : "Unknown error";
+            return next(new ErrorHandler(`Error updating product image: ${errorMessage}`, 500));
         }
     }
 
@@ -359,8 +379,9 @@ export const getAllCategories = async (
             message: `All Categories`,
             categories
         });
-    } catch (error: any) {
-        return next(error)
+    } catch (error: unknown) {
+        const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
+        return next(processedError);
     }
 }
 
@@ -409,7 +430,8 @@ export const getAllProducts = async (
             products,
             totalPages
         });
-    } catch (error: any) {
-        return next(error)
+    } catch (error: unknown) {
+        const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
+        return next(processedError);
     }
 }

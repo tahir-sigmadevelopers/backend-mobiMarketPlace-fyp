@@ -30,9 +30,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET || process.env.api_secret || '',
 });
 
-console.log('Cloudinary Configuration:');
-console.log('cloud_name:', process.env.cloud_name || process.env.CLOUDINARY_CLOUD_NAME);
-console.log('API configured:', !!process.env.api_key || !!process.env.CLOUDINARY_API_KEY);
 
 const port = process.env.PORT || 5000;
 const stripeSecret = process.env.STRIPE_SECRET || "";
