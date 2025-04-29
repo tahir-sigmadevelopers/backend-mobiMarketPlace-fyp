@@ -14,10 +14,13 @@ export interface NewUserRequestBody {
 export interface NewProductRequestBody {
     title: string,
     price: number,
-    image: string,
     stock: number,
     category: string,
-    _id: string,
+    _id?: string,
+    images?: {
+        public_id: string,
+        url: string
+    }[]
 }
 
 export interface searchRequestQuery {
@@ -92,3 +95,8 @@ export type ControllerType = (
     res: Response,
     next: NextFunction
 ) => Promise<void | Response<any, Record<string, any>>>;
+
+export interface CloudinaryResponse {
+    public_id: string;
+    url: string;
+}

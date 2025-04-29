@@ -1,47 +1,55 @@
-
 import { NextFunction, Request, Response } from "express";
 import { baseQuery, NewProductRequestBody, NewUserRequestBody, searchRequestQuery } from "../types/types.js";
 import { Product } from "../models/product.js";
-import fs from "fs";
 import { myCache } from "../app.js";
 import { invalidatesCache } from "../utils/features.js";
 import ErrorHandler from "../utils/utility-class.js";
 import { TryCatch } from "../middlewares/error.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
+export const newProduct = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category } = req.body;
+    let image = req.file;
 
-export const newProduct = async (
-    req: Request<{}, {}, NewProductRequestBody>,
-    res: Response,
-    next: NextFunction
-) => {
+    if (!title || !price || !image || !stock || !category) {
+        return res.status(400).json({
+            success: false,
+            message: "All fields are required"
+        });
+    }
+
+    console.log("File received:", image);
+    
     try {
+        // Upload image to Cloudinary
+        const cloudinaryResult = await uploadOnCloudinary(image.path);
+        console.log("Cloudinary result:", cloudinaryResult);
 
-        const { title, price, stock, category } = req.body;
+        // Create product with image data
+        const product = await Product.create({
+            title,
+            price,
+            stock,
+            category: category.toLowerCase(),
+            images: [{
+                public_id: cloudinaryResult.public_id,
+                url: cloudinaryResult.url
+            }]
+        });
 
-
-        let image = req.file
-
-        // if (!title || !price || !image || !stock || !category) {
-        //     return res.status(400).json({
-        //         success: false,
-        //         message: "All fields are required"
-        //     })
-        // }
-
-        await Product.create({
-            title, image: image?.path, price, stock, category: category.toLowerCase(),
-        })
-
-        invalidatesCache({ product: true, admin: true })
+        console.log("Product created:", product);
+        
+        invalidatesCache({ product: true, admin: true });
 
         return res.status(201).json({
             success: true,
-            message: `Product Added Successfully `,
+            message: `Product Added Successfully`,
         });
-    } catch (error: any) {
-        return next(error)
+    } catch (error) {
+        console.error("Error in product creation:", error);
+        return next(new ErrorHandler(`Error creating product: ${error.message}`, 500));
     }
-}
+});
 
 export const addUserReview = TryCatch(
     async (req, res, next) => {
@@ -225,53 +233,73 @@ export const getProductDetail = async (
 // save product
 // return updated product details
 
-export const updateProduct = async (
-    req: Request<{ id: string }, {}, NewProductRequestBody>,
-    res: Response,
-    next: NextFunction
-) => {
-    try {
-
-        const { title, price, stock, category } = req.body;
-        const id = req.params.id;
-        let product = await Product.findById(id)
-
-
-        if (!product) {
-            return res.status(404).json({ message: "Product not found", success: false })
-        }
-
-        if (req.file) {
-            fs.unlinkSync(product.image)
-            product.image = req.file.path
-        }
-
-        if (title) {
-            product.title = title
-        }
-        if (price) {
-            product.price = price
-        }
-        if (stock) {
-            product.stock = stock
-        }
-        if (category) {
-            product.category = category.toLowerCase()
-        }
-
-        await product.save()
-        invalidatesCache({ product: true, productId: String(product._id), admin: true })
-
-        return res.status(200).json({
-            success: true,
-            message: `Product updated successfully`,
-
-        });
-
-    } catch (error) {
-        return next(error)
+export const updateProduct = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category } = req.body;
+    const id = req.params.id;
+    
+    console.log("Update product request for ID:", id);
+    console.log("Request body:", req.body);
+    if (req.file) {
+        console.log("File received for update:", req.file);
     }
-}
+    
+    let product = await Product.findById(id);
+
+    if (!product) {
+        return res.status(404).json({ message: "Product not found", success: false });
+    }
+
+    if (req.file) {
+        try {
+            // Delete old image from Cloudinary if it exists
+            if (product.images && product.images.length > 0) {
+                const oldImage = product.images[0];
+                if (oldImage.public_id) {
+                    console.log("Deleting old image:", oldImage.public_id);
+                    const { deleteFromCloudinary } = await import("../utils/cloudinary.js");
+                    await deleteFromCloudinary(oldImage.public_id);
+                }
+            }
+
+            // Upload new image to Cloudinary
+            console.log("Uploading new image to Cloudinary");
+            const cloudinaryResult = await uploadOnCloudinary(req.file.path);
+            console.log("Cloudinary result:", cloudinaryResult);
+            
+            // Update product images array
+            product.images = [{
+                public_id: cloudinaryResult.public_id,
+                url: cloudinaryResult.url
+            }];
+        } catch (error) {
+            console.error("Error handling image update:", error);
+            return next(new ErrorHandler(`Error updating product image: ${error.message}`, 500));
+        }
+    }
+
+    if (title) {
+        product.title = title;
+    }
+    if (price) {
+        product.price = price;
+    }
+    if (stock) {
+        product.stock = stock;
+    }
+    if (category) {
+        product.category = category.toLowerCase();
+    }
+
+    console.log("Saving updated product:", product);
+    await product.save();
+    
+    invalidatesCache({ product: true, productId: String(product._id), admin: true });
+
+    return res.status(200).json({
+        success: true,
+        message: `Product updated successfully`,
+    });
+});
 
 
 
@@ -279,38 +307,32 @@ export const updateProduct = async (
 
 // delete product API, also delete image of product
 
-export const deleteProduct = async (
-    req: Request<{ id: string }, {}, NewUserRequestBody>,
-    res: Response,
-    next: NextFunction
-) => {
-    try {
+export const deleteProduct = TryCatch(async (req, res, next) => {
+    const id = req.params.id;
+    let product = await Product.findById(id);
 
-        const id = req.params.id;
-
-        let product = await Product.findById(id)
-
-
-        if (!product) {
-            return res.status(404).json({ message: "Product not found", success: false })
-        }
-        if (product.image) {
-            fs.unlinkSync(product.image)
-        }
-
-        await product.deleteOne()
-
-
-        invalidatesCache({ product: true, productId: String(product._id), admin: true })
-
-        return res.status(200).json({
-            success: true,
-            message: `Product Deleted Successfully`
-        });
-    } catch (error: any) {
-        return next(error)
+    if (!product) {
+        return res.status(404).json({ message: "Product not found", success: false });
     }
-}
+
+    // Delete images from Cloudinary
+    if (product.images && product.images.length > 0) {
+        const { deleteFromCloudinary } = await import("../utils/cloudinary.js");
+        for (const image of product.images) {
+            if (image.public_id) {
+                await deleteFromCloudinary(image.public_id);
+            }
+        }
+    }
+
+    await product.deleteOne();
+    invalidatesCache({ product: true, productId: String(product._id), admin: true });
+
+    return res.status(200).json({
+        success: true,
+        message: `Product Deleted Successfully`
+    });
+});
 
 
 // Revalidate on New, Update, Delete & on New Order
