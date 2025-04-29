@@ -37,7 +37,7 @@ export const newProduct = TryCatch(async (req, res, next) => {
             }]
         });
 
-        console.log("Product created:", product);
+        console.log("Product created successfully:", product);
         
         invalidatesCache({ product: true, admin: true });
 
@@ -284,11 +284,12 @@ export const updateProduct = TryCatch(async (req, res, next) => {
             const cloudinaryResult = await uploadOnCloudinary(req.file.path);
             console.log("Cloudinary result:", cloudinaryResult);
             
-            // Clear existing images and add the new one
-            product.images = [];
-            product.images.push({
-                public_id: cloudinaryResult.public_id,
-                url: cloudinaryResult.url
+            // Set the images field using mongoose set()
+            product.set({
+                images: [{
+                    public_id: cloudinaryResult.public_id,
+                    url: cloudinaryResult.url
+                }]
             });
         } catch (error: unknown) {
             console.error("Error handling image update:", error);
