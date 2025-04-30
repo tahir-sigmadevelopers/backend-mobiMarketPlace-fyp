@@ -1,6 +1,3 @@
-// -------------------------- Routes ------------------------------
-
-
 import userRoute from './routes/user.js';
 import productRoute from './routes/product.js';
 import orderRoute from './routes/order.js';
@@ -44,7 +41,9 @@ const app = express();
 
 app.use(express.json());
 app.use(morgan("dev"));
-app.use(cors());
+app.use(cors({
+    origin: ["http://localhost:5173","https://tahir-mobi-market-place-fyp.vercel.app"],
+}));
 
 
 app.get("/", (req, res) => {
