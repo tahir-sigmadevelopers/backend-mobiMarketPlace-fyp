@@ -394,41 +394,50 @@ export const getAllProducts = async (
     next: NextFunction
 ) => {
     try {
+        console.log("Search request received with URL:", req.originalUrl);
+        console.log("Query parameters:", req.query);
 
-        const { category, price, search, sort } = req.query
+        // Clear cache for fresh results
+        invalidatesCache({ product: true });
 
-        const page = Number(req.query.page) || 1
+        const { category, price, search } = req.query;
+        
+        const page = Number(req.query.page) || 1;
+        const limit = Number(process.env.Product_Per_Page) || 8;
+        const skip = limit * (page - 1);
 
-        const limit = Number(process.env.Product_Per_Page) || 8
-
-        const skip = limit * (page - 1)
-
-        const baseQuery: baseQuery = {}
+        const baseQuery: baseQuery = {};
 
         if (search) baseQuery.title = {
             $regex: search,
             $options: "i",
-        }
+        };
 
         if (price) baseQuery.price = {
             $lte: Number(price)
-        }
+        };
 
-        if (category) baseQuery.category = category
+        if (category) baseQuery.category = category;
 
-        const productsPromise = Product.find(baseQuery).sort(sort && { price: sort === "asc" ? 1 : -1 }).limit(limit).skip(skip)
+        // Get products without sorting 
+        const products = await Product.find(baseQuery)
+            .limit(limit)
+            .skip(skip)
+            .lean();
+        
+        // Get total count for pagination
+        const totalCount = await Product.countDocuments(baseQuery);
+        const totalPages = Math.ceil(totalCount / limit);
 
-        const [products, filteredOnlyProducts] = await Promise.all([
-            productsPromise, Product.find(baseQuery)
-        ])
-
-
-        let totalPages = Math.ceil(filteredOnlyProducts.length / limit);
+        // Set cache headers to prevent caching
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
 
         return res.status(200).json({
             success: true,
             message: `All Products`,
-            products,
+            products: products,
             totalPages
         });
     } catch (error: unknown) {

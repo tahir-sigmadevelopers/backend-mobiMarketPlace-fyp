@@ -27,7 +27,6 @@ export interface searchRequestQuery {
     price?: string,
     search?: string,
     category?: string,
-    sort?: string,
     page?: string
 }
 
@@ -40,9 +39,7 @@ export interface baseQuery {
         $lte: number
     },
     category?: string,
-    sort?: string,
     page?: string
-
 }
 
 export type invalidatesCacheProps = {
