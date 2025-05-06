@@ -13,6 +13,7 @@ export interface NewUserRequestBody {
 
 export interface NewProductRequestBody {
     title: string,
+    description?: string,
     price: number,
     stock: number,
     category: string,

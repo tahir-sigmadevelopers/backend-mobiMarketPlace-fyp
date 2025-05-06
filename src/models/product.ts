@@ -7,6 +7,11 @@ const productSchema = new mongoose.Schema({
         required: [true, "Please Enter Name"]
     },
 
+    description: {
+        type: String,
+        default: ""
+    },
+
     images: [
         {
           public_id: {

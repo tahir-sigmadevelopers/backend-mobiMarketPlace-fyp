@@ -7,9 +7,11 @@ import ErrorHandler from "../utils/utility-class.js";
 import { TryCatch } from "../middlewares/error.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
-export const newProduct = TryCatch(async (req, res, next) => {
-    const { title, price, stock, category } = req.body;
+const newProduct = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category, description } = req.body;
     let image = req.file;
+
+   
 
     if (!title || !price || !image || !stock || !category) {
         return res.status(400).json({
@@ -18,12 +20,16 @@ export const newProduct = TryCatch(async (req, res, next) => {
         });
     }
 
-    console.log("File received:", image);
+    // console.log("File received:", image);
     
     try {
         // Upload image to Cloudinary
         const cloudinaryResult = await uploadOnCloudinary(image.path);
-        console.log("Cloudinary result:", cloudinaryResult);
+        // console.log("Cloudinary result:", cloudinaryResult);
+
+        // Prepare description with fallback
+        const productDescription = description || "";
+        // console.log("Product description to save:", productDescription);
 
         // Create product with image data
         const product = await Product.create({
@@ -31,13 +37,15 @@ export const newProduct = TryCatch(async (req, res, next) => {
             price,
             stock,
             category: category.toLowerCase(),
+            description: productDescription,
             images: [{
                 public_id: cloudinaryResult.public_id,
                 url: cloudinaryResult.url
             }]
         });
 
-        console.log("Product created successfully:", product);
+        // console.log("Product created successfully:", product);
+        console.log("Saved description:", product.description);
         
         invalidatesCache({ product: true, admin: true });
 
@@ -52,7 +60,7 @@ export const newProduct = TryCatch(async (req, res, next) => {
     }
 });
 
-export const addUserReview = TryCatch(async (req, res, next) => {
+const addUserReview = TryCatch(async (req, res, next) => {
     const { rating, comment, id, user } = req.body;
 
     if (!rating || !comment || !id || !user) {
@@ -116,7 +124,7 @@ export const addUserReview = TryCatch(async (req, res, next) => {
 });
 
 // Revalidate on New, Update, Delete & on New Order
-export const getLatestProducts = async (
+const getLatestProducts = async (
     req: Request<{}, {}, NewUserRequestBody>,
     res: Response,
     next: NextFunction
@@ -131,7 +139,7 @@ export const getLatestProducts = async (
         }
         else {
             // get latest products from server 
-            products = await Product.find().sort({ createdAt: -1 }).limit(6)
+            products = await Product.find().sort({ createdAt: -1 }).limit(8)
 
             myCache.set("latest-products", JSON.stringify(products));
         }
@@ -149,7 +157,7 @@ export const getLatestProducts = async (
 }
 
 
-export const getAdminProducts = async (
+const getAdminProducts = async (
     req: Request<{}, {}, NewUserRequestBody>,
     res: Response,
     next: NextFunction
@@ -178,7 +186,7 @@ export const getAdminProducts = async (
 }
 
 
-export const getProductDetail = async (
+const getProductDetail = async (
     req: Request<{ id: string }, {}, NewUserRequestBody>,
     res: Response,
     next: NextFunction
@@ -251,12 +259,15 @@ export const getProductDetail = async (
 // save product
 // return updated product details
 
-export const updateProduct = TryCatch(async (req, res, next) => {
-    const { title, price, stock, category } = req.body;
+const updateProduct = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category, description } = req.body;
     const id = req.params.id;
     
     console.log("Update product request for ID:", id);
-    console.log("Request body:", req.body);
+    console.log("Complete request body:", req.body);
+    console.log("Description received in update:", description);
+    console.log("Description type:", typeof description);
+    
     if (req.file) {
         console.log("File received for update:", req.file);
     }
@@ -266,6 +277,8 @@ export const updateProduct = TryCatch(async (req, res, next) => {
     if (!product) {
         return res.status(404).json({ message: "Product not found", success: false });
     }
+
+    console.log("Original product description:", product.description);
 
     if (req.file) {
         try {
@@ -311,8 +324,16 @@ export const updateProduct = TryCatch(async (req, res, next) => {
         product.category = category.toLowerCase();
     }
 
-    console.log("Saving updated product:", product);
+    // Always update description, even if it's empty
+    console.log("Setting new description:", description);
+    product.description = description !== undefined ? description : "";
+
+    console.log("Updated product before saving:", JSON.stringify(product));
     await product.save();
+    
+    // Verify description was saved by fetching the product again
+    const updatedProduct = await Product.findById(id);
+    console.log("Product after save. Final description:", updatedProduct?.description);
     
     invalidatesCache({ product: true, productId: String(product._id), admin: true });
 
@@ -323,12 +344,56 @@ export const updateProduct = TryCatch(async (req, res, next) => {
 });
 
 
+// New controller specifically for updating product details (no file handling)
+const updateProductDetails = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category, description } = req.body;
+    const id = req.params.id;
+    
+    console.log("Update product details for ID:", id);
+    console.log("Request body for details update:", req.body);
+    console.log("Description received in details update:", description);
+    console.log("Description type:", typeof description);
+    
+    let product = await Product.findById(id);
+
+    if (!product) {
+        return res.status(404).json({ 
+            message: "Product not found", 
+            success: false 
+        });
+    }
+
+    console.log("Original product description:", product.description);
+
+    // Update fields if provided
+    if (title) product.title = title;
+    if (price !== undefined) product.price = price;
+    if (stock !== undefined) product.stock = stock;
+    if (category) product.category = category.toLowerCase();
+    
+    // Always update description
+    product.description = description !== undefined ? description : "";
+    console.log("Setting description to:", product.description);
+
+    await product.save();
+    
+    // Verify description was saved
+    const updatedProduct = await Product.findById(id);
+    console.log("Product after save. Description:", updatedProduct?.description);
+    
+    invalidatesCache({ product: true, productId: String(product._id), admin: true });
+
+    return res.status(200).json({
+        success: true,
+        message: `Product details updated successfully`,
+    });
+});
 
 
 
 // delete product API, also delete image of product
 
-export const deleteProduct = TryCatch(async (req, res, next) => {
+const deleteProduct = TryCatch(async (req, res, next) => {
     const id = req.params.id;
     let product = await Product.findById(id);
 
@@ -358,7 +423,7 @@ export const deleteProduct = TryCatch(async (req, res, next) => {
 
 // Revalidate on New, Update, Delete & on New Order
 // get all categories products by distinct category
-export const getAllCategories = async (
+const getAllCategories = async (
     req: Request<{}, {}, NewUserRequestBody>,
     res: Response,
     next: NextFunction
@@ -388,7 +453,7 @@ export const getAllCategories = async (
 
 
 
-export const getAllProducts = async (
+const getAllProducts = async (
     req: Request<{}, {}, {}, searchRequestQuery>,
     res: Response,
     next: NextFunction
@@ -403,7 +468,7 @@ export const getAllProducts = async (
         const { category, price, search } = req.query;
         
         const page = Number(req.query.page) || 1;
-        const limit = Number(process.env.Product_Per_Page) || 8;
+        const limit = Number(process.env.Product_Per_Page) || 9;
         const skip = limit * (page - 1);
 
         const baseQuery: baseQuery = {};
@@ -444,4 +509,63 @@ export const getAllProducts = async (
         const processedError = error instanceof Error ? error : new Error("Unknown error occurred");
         return next(processedError);
     }
+}
+
+// New controller for creating product with details
+const createProductWithDetails = TryCatch(async (req, res, next) => {
+    const { title, price, stock, category, description, imageUrl, imagePublicId } = req.body;
+    
+    console.log("Create product with details - Request body:", req.body);
+    console.log("Description received:", description);
+    console.log("Description type:", typeof description);
+
+    if (!title || !price || !stock || !category || !imageUrl || !imagePublicId) {
+        return res.status(400).json({
+            success: false,
+            message: "All required fields must be provided"
+        });
+    }
+    
+    try {
+        // Create product with image data
+        const product = await Product.create({
+            title,
+            price,
+            stock,
+            category: category.toLowerCase(),
+            description: description || "",
+            images: [{
+                public_id: imagePublicId,
+                url: imageUrl
+            }]
+        });
+
+        console.log("Product created successfully with details:", product);
+        console.log("Saved description:", product.description);
+        
+        invalidatesCache({ product: true, admin: true });
+
+        return res.status(201).json({
+            success: true,
+            message: `Product Added Successfully`,
+        });
+    } catch (error: unknown) {
+        console.error("Error in product creation:", error);
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        return next(new ErrorHandler(`Error creating product: ${errorMessage}`, 500));
+    }
+});
+
+export { 
+    newProduct, 
+    getLatestProducts, 
+    getAllProducts, 
+    getProductDetail, 
+    updateProduct,
+    updateProductDetails,
+    deleteProduct, 
+    getAllCategories, 
+    getAdminProducts,
+    addUserReview,
+    createProductWithDetails
 }
