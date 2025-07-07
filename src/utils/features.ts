@@ -5,7 +5,7 @@ import { Product } from '../models/product.js';
 
 export const connectDB = async () => {
     try {
-        let conn = await mongoose.connect(process.env.MONGO_URL || "", {
+        let conn = await mongoose.connect(process.env.MONGO_URL || "mongodb+srv://tahir:_isHacked@cluster0.z2sch.mongodb.net", {
             dbName: "Final_Year_ECommerce"
         })
 
