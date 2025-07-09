@@ -151,7 +151,7 @@ export const getDashboardStats = async (
                 discount: transaction.discount,
                 amount: transaction.total,
                 status: transaction.status,
-                quantity: transaction.orderItems.length
+                quantity: transaction.orderItems.reduce((total, item) => total + (item.quantity || 0), 0)
             }))
 
             stats = {

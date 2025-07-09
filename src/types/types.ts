@@ -82,12 +82,6 @@ export interface NewOrderRequestBody {
     tax: number,
 }
 
-export interface NewCouponBody {
-    coupon: string,
-    amount: number,
-}
-
-
 export type ControllerType = (
     req: Request,
     res: Response,
