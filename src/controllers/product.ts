@@ -133,16 +133,11 @@ const getLatestProducts = async (
 
         let products
 
-        if (myCache.has("latest-products")) {
-            // get latest products from cache
-            products = JSON.parse(myCache.get("latest-products")!)
-        }
-        else {
-            // get latest products from server 
-            products = await Product.find().sort({ createdAt: -1 }).limit(8)
-
-            myCache.set("latest-products", JSON.stringify(products));
-        }
+        // Always fetch fresh products to ensure we get 12 products
+        products = await Product.find().sort({ createdAt: -1 }).limit(12)
+        
+        // Update the cache with the latest 12 products
+        myCache.set("latest-products", JSON.stringify(products));
 
         return res.status(200).json({
             success: true,

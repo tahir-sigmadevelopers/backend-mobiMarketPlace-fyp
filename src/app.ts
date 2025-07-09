@@ -64,6 +64,10 @@ app.use("/uploads", express.static("uploads"));
 // Add error middleware at the end, without a path
 app.use(errorMiddleware);
 
+// Clear specific caches on server start to ensure fresh data
+myCache.del(["latest-products"]);
+console.log("Cleared latest-products cache on server start");
+
 app.listen(port, () => {
     console.log(`Server is listening on port ${port}`);
 });
